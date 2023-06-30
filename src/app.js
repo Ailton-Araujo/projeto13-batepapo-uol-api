@@ -49,23 +49,26 @@ app.post("/participants", async (req, res) => {
     const errors = validation.error.details.map((detail) => detail.message);
     return res.status(422).send(errors);
   }
-
+  console.log(stripHtml(name).result.trim());
   try {
-    const user = await db.collection("participants").findOne({ name: name });
+    const user = await db
+      .collection("participants")
+      .findOne({ name: stripHtml(name).result.trim() });
+
     if (user)
       return res.status(409).send("Este nome de Usuário já está em uso");
     const date = Date.now();
 
     const promise1 = db
       .collection("participants")
-      .insertOne({ name, lastStatus: date });
+      .insertOne({ name: stripHtml(name).result.trim(), lastStatus: date });
 
     const promise2 = db.collection("messages").insertOne({
-      from: name,
+      from: stripHtml(name).result.trim(),
       to: "Todos",
       text: "entra na sala...",
       type: "status",
-      time: dayjs(date).format("HH:mm:ss"),
+      time: dayjs(date).result.format("HH:mm:ss"),
     });
 
     await promise1;
@@ -87,7 +90,7 @@ app.get("/participants", async (req, res) => {
 
 // Messages
 app.post("/messages", async (req, res) => {
-  const from = req.headers.user;
+  const from = stripHtml(req.headers.user).result.trim();
   const { to, text, type } = req.body;
 
   const validation = schemaMessage.validate(req.body, { abortEarly: false });
@@ -102,19 +105,19 @@ app.post("/messages", async (req, res) => {
 
     await db.collection("messages").insertOne({
       from,
-      to,
-      text,
-      type,
+      to: stripHtml(to).result.trim(),
+      text: stripHtml(text).result.trim(),
+      type: stripHtml(type).result.trim(),
       time: dayjs(Date.now()).format("HH:mm:ss"),
     });
     res.sendStatus(201);
-  } catch (error) {
+  } catch (err) {
     res.status(500).send(err.message);
   }
 });
 
 app.get("/messages", async (req, res) => {
-  const name = req.headers.user;
+  const name = stripHtml(req.headers.user).result.trim();
   const { limit } = req.query;
 
   const validation = schemaLimit.validate(limit);
@@ -155,7 +158,7 @@ app.delete("/messages/:id", async (req, res) => {
       .collection("messages")
       .findOne({ _id: new ObjectId(id) });
     if (!message) return res.status(404).send("Essa mensagem não exite");
-    if (!(message.from === from)) return res.sendStatus(401);
+    if (message.from !== from) return res.sendStatus(401);
 
     await db.collection("messages").deleteOne(message);
     res.status(200).send("Mensagem deletada com sucesso!");
@@ -164,11 +167,44 @@ app.delete("/messages/:id", async (req, res) => {
   }
 });
 
-app.put("/messages/:id", async (req, res) => {});
+app.put("/messages/:id", async (req, res) => {
+  const from = stripHtml(req.headers.user).result.trim();
+  const { to, text, type } = req.body;
+  const { id } = req.params;
+
+  const validation = schemaMessage.validate(req.body, { abortEarly: false });
+
+  if (validation.error) {
+    const errors = validation.error.details.map((detail) => detail.message);
+    return res.status(422).send(errors);
+  }
+
+  try {
+    const message = await db
+      .collection("messages")
+      .findOne({ _id: new ObjectId(id) });
+    if (!message) return res.status(404).send("Essa mensagem não exite");
+
+    const user = await db.collection("participants").findOne({ name: from });
+    if (!user) return res.status(422).send("Usuário não encontrado");
+
+    await db.collection("messages").updateOne(message, {
+      $set: {
+        to: stripHtml(to).result.trim(),
+        text: stripHtml(text).result.trim(),
+        type: stripHtml(type).result.trim(),
+      },
+    });
+
+    res.status(200).send("Mensagem editada com sucesso!");
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
 
 // Status
 app.post("/status", async (req, res) => {
-  const name = req.headers.user;
+  const name = stripHtml(req.headers.user).result.trim();
   if (name === undefined) return res.sendStatus(404);
 
   try {
@@ -177,7 +213,7 @@ app.post("/status", async (req, res) => {
 
     await db
       .collection("participants")
-      .updateOne({ name: name }, { $set: { lastStatus: Date.now() } });
+      .updateOne(user, { $set: { lastStatus: Date.now() } });
     res.sendStatus(200);
   } catch (err) {
     res.status(500).send(err.message);
