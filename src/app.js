@@ -17,6 +17,8 @@ const schemaMessage = Joi.object({
   type: Joi.any().valid("message", "private_message").required(),
 });
 
+const schemaLimit = Joi.number().integer().greater(0);
+
 // App setting
 const app = express();
 // Configs
@@ -94,23 +96,49 @@ app.post("/messages", async (req, res) => {
     const errors = validation.error.details.map((detail) => detail.message);
     return res.status(422).send(errors);
   }
+  try {
+    const user = await db.collection("participants").findOne({ name: from });
+    if (!user) return res.status(422).send("Usuário não encontrado");
 
-  const user = await db.collection("participants").findOne({ name: from });
-  if (!user) return res.status(422).send("Usuário não encontrado");
-
-  await db.collection("messages").insertOne({
-    from,
-    to,
-    text,
-    type,
-    time: dayjs(Date.now()).format("HH:mm:ss"),
-  });
-  res.sendStatus(201);
+    await db.collection("messages").insertOne({
+      from,
+      to,
+      text,
+      type,
+      time: dayjs(Date.now()).format("HH:mm:ss"),
+    });
+    res.sendStatus(201);
+  } catch (error) {
+    res.status(500).send(err.message);
+  }
 });
 
 app.get("/messages", async (req, res) => {
+  const name = req.headers.user;
+  const { limit } = req.query;
+
+  const validation = schemaLimit.validate(limit);
+
+  if (validation.error) {
+    const errors = validation.error.details.map((detail) => detail.message);
+    return res.status(422).send(errors);
+  }
+
   try {
-    const messages = await db.collection("messages").find().toArray();
+    if (limit !== undefined) {
+      const messages = await db
+        .collection("messages")
+        .find({ $or: [{ to: "Todos" }, { from: name }, { to: name }] })
+        .sort({ $natural: -1 })
+        .limit(Number(limit))
+        .toArray();
+      return res.send(messages);
+    }
+
+    const messages = await db
+      .collection("messages")
+      .find({ $or: [{ to: "Todos" }, { from: name }, { to: name }] })
+      .toArray();
     res.send(messages);
   } catch (err) {
     res.status(500).send(err.message);
@@ -129,8 +157,8 @@ app.delete("/messages/:id", async (req, res) => {
     if (!message) return res.status(404).send("Essa mensagem não exite");
     if (!(message.from === from)) return res.sendStatus(401);
 
-    const result = await db.collection("messages").deleteOne(message);
-    res.status(204).send("Mensagem deletada com sucesso!");
+    await db.collection("messages").deleteOne(message);
+    res.status(200).send("Mensagem deletada com sucesso!");
   } catch (err) {
     res.status(500).send(err.message);
   }
@@ -139,7 +167,50 @@ app.delete("/messages/:id", async (req, res) => {
 app.put("/messages/:id", async (req, res) => {});
 
 // Status
-app.post("/status", async (req, res) => {});
+app.post("/status", async (req, res) => {
+  const name = req.headers.user;
+  if (name === undefined) return res.sendStatus(404);
+
+  try {
+    const user = await db.collection("participants").findOne({ name: name });
+    if (!user) return res.sendStatus(404);
+
+    await db
+      .collection("participants")
+      .updateOne({ name: name }, { $set: { lastStatus: Date.now() } });
+    res.sendStatus(200);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+// Remove inactive Users
+
+setInterval(async () => {
+  try {
+    const inatives = await db
+      .collection("participants")
+      .find({ lastStatus: { $lt: Date.now() - 10000 } })
+      .toArray();
+
+    inatives.forEach(async (participant) => {
+      const promise1 = db.collection("messages").insertOne({
+        from: participant.name,
+        to: "Todos",
+        text: "sai da sala...",
+        type: "status",
+        time: dayjs(Date.now()).format("HH:mm:ss"),
+      });
+      const promise2 = db
+        .collection("participants")
+        .deleteOne({ _id: participant._id });
+      await promise1;
+      await promise2;
+    });
+  } catch (err) {
+    console.log(err.message);
+  }
+}, 15000);
 
 // Server Listener
 const PORT = 5000;
