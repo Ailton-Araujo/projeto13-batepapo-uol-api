@@ -232,7 +232,7 @@ setInterval(async () => {
   try {
     const inatives = await db
       .collection("participants")
-      .find({ lastStatus: { $lt: Date.now() - 10000000 } })
+      .find({ lastStatus: { $lt: Date.now() - 10000 } })
       .toArray();
 
     inatives.forEach(async (participant) => {
