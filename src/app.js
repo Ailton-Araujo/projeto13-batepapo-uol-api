@@ -49,12 +49,10 @@ app.post("/participants", async (req, res) => {
     const errors = validation.error.details.map((detail) => detail.message);
     return res.status(422).send(errors);
   }
-  console.log(stripHtml(name).result.trim());
   try {
     const user = await db
       .collection("participants")
       .findOne({ name: stripHtml(name).result.trim() });
-
     if (user)
       return res.status(409).send("Este nome de Usuário já está em uso");
     const date = Date.now();
@@ -68,7 +66,7 @@ app.post("/participants", async (req, res) => {
       to: "Todos",
       text: "entra na sala...",
       type: "status",
-      time: dayjs(date).result.format("HH:mm:ss"),
+      time: dayjs(date).format("HH:mm:ss"),
     });
 
     await promise1;
