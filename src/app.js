@@ -88,7 +88,7 @@ app.get("/participants", async (req, res) => {
 
 // Messages
 app.post("/messages", async (req, res) => {
-  const from = stripHtml(req.headers.user).result.trim();
+  const from = req.headers.user;
   const { to, text, type } = req.body;
 
   const validation = schemaMessage.validate(req.body, { abortEarly: false });
@@ -97,12 +97,16 @@ app.post("/messages", async (req, res) => {
     const errors = validation.error.details.map((detail) => detail.message);
     return res.status(422).send(errors);
   }
+  if (!from) return res.sendStatus(422);
+
   try {
-    const user = await db.collection("participants").findOne({ name: from });
+    const user = await db
+      .collection("participants")
+      .findOne({ name: stripHtml(from).result.trim() });
     if (!user) return res.status(422).send("Usuário não encontrado");
 
     await db.collection("messages").insertOne({
-      from,
+      from: stripHtml(from).result.trim(),
       to: stripHtml(to).result.trim(),
       text: stripHtml(text).result.trim(),
       type: stripHtml(type).result.trim(),
@@ -182,6 +186,8 @@ app.put("/messages/:id", async (req, res) => {
       .collection("messages")
       .findOne({ _id: new ObjectId(id) });
     if (!message) return res.status(404).send("Essa mensagem não exite");
+    if (message.from !== from)
+      return res.status(401).send("Você não pode deletar esta mensagem");
 
     const user = await db.collection("participants").findOne({ name: from });
     if (!user) return res.status(422).send("Usuário não encontrado");
@@ -226,7 +232,7 @@ setInterval(async () => {
   try {
     const inatives = await db
       .collection("participants")
-      .find({ lastStatus: { $lt: Date.now() - 10000 } })
+      .find({ lastStatus: { $lt: Date.now() - 10000000 } })
       .toArray();
 
     inatives.forEach(async (participant) => {
