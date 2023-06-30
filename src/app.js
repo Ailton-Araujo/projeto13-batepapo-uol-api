@@ -202,11 +202,13 @@ app.put("/messages/:id", async (req, res) => {
 
 // Status
 app.post("/status", async (req, res) => {
-  const name = stripHtml(req.headers.user).result.trim();
+  const name = req.headers.user;
   if (name === undefined) return res.sendStatus(404);
 
   try {
-    const user = await db.collection("participants").findOne({ name: name });
+    const user = await db
+      .collection("participants")
+      .findOne({ name: stripHtml(name).result.trim() });
     if (!user) return res.sendStatus(404);
 
     await db
